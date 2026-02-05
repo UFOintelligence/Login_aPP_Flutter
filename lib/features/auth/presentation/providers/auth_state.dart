@@ -1,10 +1,12 @@
+import 'package:curso1/core/network/api_exception.dart';
+
 import '../../domain/entities/user.dart';
 
 class AuthState {
   final bool isLoading;
   final  User? user;
   final String? token;
-  final String? error; 
+  final ApiException? error; 
 
   const AuthState({
     this.isLoading =  false,
@@ -16,7 +18,7 @@ class AuthState {
   bool? isLoading,
   User? user,
   String? token,
-  String? error
+  ApiException? error,
  }) {
   return AuthState(
     isLoading: isLoading ?? this.isLoading,

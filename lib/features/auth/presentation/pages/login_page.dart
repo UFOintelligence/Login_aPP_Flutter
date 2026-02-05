@@ -30,11 +30,7 @@ class LoginPage extends  ConsumerWidget{
               child: Text('Login'),
               
               ),
-              if (AuthState.error != null)
-              Text(
-                AuthState.error!,
-                style: const TextStyle(color: Colors.red),
-              ),
+             
               if(AuthState.user != null)
               Text('Bienvenido ${AuthState.user!.name}'),
               

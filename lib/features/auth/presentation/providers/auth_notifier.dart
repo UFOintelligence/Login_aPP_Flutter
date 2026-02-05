@@ -1,9 +1,9 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-
+import '../../../../core/network/api_exception.dart';
+import '../../../../core/storage/secure_storage_service.dart';
 import '../../domain/usecases/login_usecase.dart';
 import 'auth_state.dart';
-import '../../../../core/storage/secure_storage_service.dart';
 
 class AuthNotifier extends StateNotifier<AuthState> {
   final LoginUseCase loginUseCase;
@@ -28,16 +28,13 @@ class AuthNotifier extends StateNotifier<AuthState> {
         debugPrint(' TOKEN ENCONTRADO');
         debugPrint(' TOKEN: $token');
 
-        state = state.copyWhith(
-          token: token,
-          isLoading: false,
-        );
+        state = state.copyWhith(token: token);
       } else {
         debugPrint(' NO HAY TOKEN GUARDADO');
-        state = state.copyWhith(isLoading: false);
       }
     } catch (e) {
       debugPrint(' ERROR EN checkAuth: $e');
+    } finally {
       state = state.copyWhith(isLoading: false);
     }
   }
@@ -62,22 +59,26 @@ class AuthNotifier extends StateNotifier<AuthState> {
       debugPrint(' USUARIO: ${user.email}');
       debugPrint(' TOKEN: $token');
 
-      // 🔥 GUARDAR TOKEN
       await storage.saveToken(token);
       debugPrint('💾 TOKEN GUARDADO EN SECURE STORAGE');
 
       state = state.copyWhith(
-        isLoading: false,
         token: token,
         user: user,
       );
     } catch (e) {
       debugPrint(' ERROR EN LOGIN: $e');
 
-      state = state.copyWhith(
-        isLoading: false,
-        error: e.toString(),
-      );
+      final apiError = e is ApiException
+          ? e
+          : ApiException(
+              message: 'Error inesperado',
+              statusCode: 0,
+            );
+
+      state = state.copyWhith(error: apiError);
+    } finally {
+      state = state.copyWhith(isLoading: false);
     }
   }
 
@@ -85,7 +86,7 @@ class AuthNotifier extends StateNotifier<AuthState> {
   // LOGOUT
   // =========
   Future<void> logout() async {
-    debugPrint('LOGOUT');
+    debugPrint(' LOGOUT');
     await storage.deleteToken();
     debugPrint(' TOKEN ELIMINADO');
 

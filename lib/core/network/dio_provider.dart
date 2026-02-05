@@ -4,38 +4,23 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../constants/api/api_constants.dart';
 import '../storage/secure_storage_provider.dart';
 import 'auth_inteceptor.dart';
+import '../constants/api/api_constants.dart';
 
 
 final dioProvider = Provider<Dio>((ref) {
-final storage = ref.read(secureStorageProvider);
-
   final dio = Dio(
-  BaseOptions(baseUrl: ApiConstans.baseUrl,
-  connectTimeout: const Duration(seconds: 10),
-  receiveTimeout: const Duration(seconds: 30),
-  sendTimeout: const Duration(seconds: 10),
-  
-  headers: {
-    'Accept': 'application/json',
-    'Content-Type': 'application/json',
-  }  )
-
+    BaseOptions(
+      baseUrl: ApiConstants.baseUrl,
+      connectTimeout: const Duration(seconds: 10),
+      receiveTimeout: const Duration(seconds: 10),
+    ),
   );
+
+  final storage = ref.read(secureStorageProvider);
+
   dio.interceptors.add(
-    InterceptorsWrapper(
-      onRequest: (options, handler) async {
-        final token = await storage.getToken();
-        if( token != null){
-          options.headers['Authorization'] = 'Bearer $token';
-        }
-      handler.next(options);
-
-      }
-    )
+    AuthInterceptor(dio, storage, ref),
   );
 
-  dio.interceptors.add(AuthInteceptor(storage, dio));
   return dio;
 });
-
-     

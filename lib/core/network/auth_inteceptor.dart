@@ -1,71 +1,84 @@
-import 'package:curso1/core/network/api_exception.dart';
-import 'package:curso1/core/storage/secure_storage_service.dart';
-import'package:dio/dio.dart';
-import '../storage/secure_storage_provider.dart';
-
-class AuthInteceptor extends Interceptor {
-
-  final SecureStorageService storage;
+import 'package:dio/dio.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import '../storage/secure_storage_service.dart';
+import '../../features/auth/presentation/providers/auth_provider.dart';
+import 'lock_refresh.dart';
+class AuthInterceptor extends Interceptor {
   final Dio dio;
-  //bool _isRefreshing = false;
-  AuthInteceptor(this.storage, this.dio);
+  final SecureStorageService storage;
+  final Ref ref;
 
-  //Request
+  bool _isRefreshing = false;
+  final List<Future<void> Function()> _retryQueue = [];
+
+  AuthInterceptor(this.dio, this.storage, this.ref);
+
   @override
-  Future<void>onRequest(
+  void onRequest(
     RequestOptions options,
-    RequestInterceptorHandler handler
-  )async{
+    RequestInterceptorHandler handler,
+  ) async {
     final token = await storage.getToken();
-     print(' REQUEST → ${options.method} ${options.path}');
-    print('TOKEN EN STORAGE: $token');
 
-    if(token != null && token.isNotEmpty){
+    if (token != null) {
       options.headers['Authorization'] = 'Bearer $token';
-       print('REQUEST ${options.method} ${options.path}');
-    
-    }else{
-       print(' NO HAY TOKEN');
     }
-    return handler.next(options);
-  }
-  // ======================
-  // ERROR
-  // ======================
-@override
-  void onError(DioException err, ErrorInterceptorHandler handler) async {
-   final  statusCode = err.response?.statusCode;
-   
-    // 401 → cerrar sesión
-    if(statusCode == 401){
-        print(' 401  logout automático');
 
-        await storage.clearToken();
+    handler.next(options);
+  }
+
+  @override
+  void onError(DioException err, ErrorInterceptorHandler handler) async {
+    if (err.response?.statusCode != 401) {
+      return handler.next(err);
     }
-    //  422  errores de formulario
-    if(statusCode == 422){
-      handler.reject(DioException(requestOptions: err.requestOptions,
-      error: ApiException(
-      message: 'Error de validación',
-      statusCode: 422,
-      data: err.response?.data
-      )));
-      return; 
+
+    final refreshToken = await storage.getRefreshToken();
+
+    // ❌ Sin refresh → logout
+    if (refreshToken == null) {
+      ref.read(authProvider.notifier).logout();
+      return handler.next(err);
     }
-    // 500 Error del servidor
-    if(statusCode == 500){
-      handler.reject(DioException(requestOptions: err.requestOptions,
-      error: ApiException(
-      message: 'Error interno del servidor',
-      statusCode: 500,
-      data: err.response?.data
-      ))
-      );
+
+    // 🔒 Ya hay refresh en curso → encolamos
+    if (_isRefreshing) {
+      _retryQueue.add(() async {
+        final response = await dio.fetch(err.requestOptions);
+        handler.resolve(response);
+      });
       return;
     }
-    handler.reject(DioException(requestOptions: err.requestOptions,
-    error: ApiException(
-    message: 'Error inesperado',
-    statusCode: statusCode)));
-}
+
+    _isRefreshing = true;
+
+    try {
+      final response = await dio.post(
+        '/refresh',
+        data: {'refresh_token': refreshToken},
+      );
+
+      final newToken = response.data['token'] as String;
+
+      await storage.saveToken(newToken);
+
+      // 🔁 Reintentar TODAS las requests en cola
+      for (final retry in _retryQueue) {
+        await retry();
+      }
+
+      _retryQueue.clear();
+
+      // 🔁 Reintentar la request original
+      final retryResponse = await dio.fetch(err.requestOptions);
+      handler.resolve(retryResponse);
+    } catch (_) {
+      // ❌ Refresh falló → logout
+      await storage.deleteToken();
+      ref.read(authProvider.notifier).logout();
+      handler.next(err);
+    } finally {
+      _isRefreshing = false;
+    }
+  }
 }
